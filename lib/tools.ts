@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import { start } from "workflow/api";
 import { returnFlow } from "./workflows/return-flow";
+import { createOrGetSandbox, SANDBOX_NAME } from "@/lib/sandbox";
 
 export const searchProducts = tool({
   description: `Search the Vercel swag store product catalog and return a short summary of each matching product. Use this for broad lookups: when the user asks what the store sells, wants recommendations, or names an item you need to find the id/slug for. For details, images, or stock on one specific item, follow up with getProductDetails. Optionally narrow results to a single category.`,
@@ -219,6 +220,7 @@ export const getSupportTickets = tool({
     }
   },
 });
+
 export const getReturnsHistory = tool({
   description: `List historical returns from the back office within a date range. Each entry includes the items returned, the decision (approved/rejected/needs_info), refund amount in cents (divide by 100 for dollar amounts in your reply), and a summary of the related order. Use this for return triage, refund auditing, or identifying products with high return volumes. History covers ~last 180 days. Summarize across the returned rows in your reply rather than dumping them; for more than ~10 rows of arithmetic, note that exact joins and aggregates are limited until a sandbox tool is added.`,
   inputSchema: z.object({
@@ -254,6 +256,7 @@ export const getReturnsHistory = tool({
     }
   },
 });
+
 export const getInventoryStock = tool({
   description: `Current stock levels for all products (or a subset). Results are sorted by stock ascending, so out-of-stock and low-stock items appear first. Use this to answer questions about availability, restocking priorities, or which items are about to run out. Summarize the rows in your reply rather than dumping them.`,
   inputSchema: z.object({
@@ -292,6 +295,7 @@ export const getInventoryStock = tool({
     }
   },
 });
+
 export const getSalesAnalytics = tool({
   description: `Sales totals by product within a date range. Each row reports unitsSold, ordersCount, and revenue in cents (divide by 100 for dollar amounts in your reply). Results are sorted by unitsSold descending. Pair with getReturnsHistory to compute per-product return rates. Sales data covers ~last 180 days. Summarize across the rows in your reply rather than dumping them; for more than ~10 rows of arithmetic, note that exact joins and aggregates are limited until a sandbox tool is added.`,
   inputSchema: z.object({
@@ -320,5 +324,22 @@ export const getSalesAnalytics = tool({
         err instanceof ApiRequestError ? err.message : "Unknown error";
       return { count: 0, sales: [], error: message };
     }
+  },
+});
+
+export const bash = tool({
+  description: "Run a bash command in the sandbox environment",
+  inputSchema: z.object({
+    command: z.string().describe("The bash command to run"),
+  }),
+  execute: async ({ command }) => {
+    "use step";
+    const sandbox = await createOrGetSandbox(SANDBOX_NAME);
+    const result = await sandbox.runCommand("bash", ["-lc", command]);
+    return {
+      stdout: await result.stdout(),
+      stderr: await result.stderr(),
+      exitCode: result.exitCode,
+    };
   },
 });
