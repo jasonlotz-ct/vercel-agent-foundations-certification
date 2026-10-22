@@ -5,13 +5,15 @@ import {
   createReturn,
   getCategories,
   getOrder,
+  getProductById,
   getProducts,
+  getProductStock,
   preauthorizeRefund,
   notifyReturnInProcess,
 } from "@/lib/api";
 
 export const searchProducts = tool({
-  description: `Search the Vercel swag store product catalog. Use this whenever the user asks about products, what the store sells, or wants recommendations. Optionally narrow results to a single category.`,
+  description: `Search the Vercel swag store product catalog and return a short summary of each matching product. Use this for broad lookups: when the user asks what the store sells, wants recommendations, or names an item you need to find the id/slug for. For details, images, or stock on one specific item, follow up with getProductDetails. Optionally narrow results to a single category.`,
   inputSchema: z.object({
     query: z
       .string()
@@ -50,6 +52,55 @@ export const searchProducts = tool({
       const message =
         err instanceof ApiRequestError ? err.message : "Unknown error";
       return { count: 0, products: [], error: message };
+    }
+  },
+});
+
+export const getProductDetails = tool({
+  description: `Get the full details and live stock level for ONE specific product, by its id or slug. Use this whenever the user asks about a particular item (e.g. "tell me more about the black hoodie", "is the mug in stock?", "what does it look like?"). If you don't know the product's id or slug yet, call searchProducts first to find it, then call this tool. Prices are in the smallest currency unit (cents).`,
+  inputSchema: z.object({
+    idOrSlug: z
+      .string()
+      .describe(
+        `The product's id (e.g. 'hoodie_001') or slug (e.g. 'black-pullover-hoodie'), taken from a searchProducts result.`,
+      ),
+  }),
+  execute: async ({ idOrSlug }) => {
+    try {
+      // Stock is live (uncached) and non-essential, so a stock failure
+      // shouldn't hide the rest of the product details.
+      const [product, stock] = await Promise.all([
+        getProductById(idOrSlug),
+        getProductStock(idOrSlug).catch(() => null),
+      ]);
+      return {
+        id: product.id,
+        name: product.name,
+        slug: product.slug,
+        description: product.description,
+        price: product.price,
+        currency: product.currency,
+        category: product.category,
+        images: product.images,
+        tags: product.tags,
+        featured: product.featured,
+        stock: stock
+          ? {
+              quantity: stock.stock,
+              inStock: stock.inStock,
+              lowStock: stock.lowStock,
+            }
+          : null,
+      };
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.status === 404) {
+        return {
+          error: `No product found for "${idOrSlug}". Use searchProducts to find the right id or slug.`,
+        };
+      }
+      const message =
+        err instanceof ApiRequestError ? err.message : "Unknown error";
+      return { error: message };
     }
   },
 });
